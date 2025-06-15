@@ -48,7 +48,6 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
   <div class="w-full max-w-4xl grid md:grid-cols-2 gap-6">
-    <!-- 借用操作區 -->
     <div class="bg-white shadow-lg rounded-xl p-6">
       <h2 class="text-2xl font-bold text-indigo-600 mb-4">📦 器材借用</h2>
 
@@ -82,7 +81,6 @@
       </div>
     </div>
 
-    <!-- 紀錄顯示區 -->
     <div class="bg-white shadow-lg rounded-xl p-6 overflow-auto">
       <h2 class="text-2xl font-bold text-green-600 mb-4">📋 借用紀錄</h2>
       <table class="w-full text-sm text-left border">
@@ -292,8 +290,24 @@
                 continue;
               }
               const tr = document.createElement("tr");
+              // Modified line to format the date and time
               tr.innerHTML = `
-                <td class="border px-2 py-1">${new Date(time).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</td>
+                <td class="border px-2 py-1">${new Date(time).toLocaleString("zh-TW", {
+                  year: 'numeric',
+                  month: 'numeric',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  second: 'numeric',
+                  hour12: false, // Use 24-hour format initially for easier conversion to AM/PM text
+                  timeZone: "Asia/Taipei"
+                }).replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, (match, m, d, y, H, M, S) => {
+                  let hour = parseInt(H, 10);
+                  let ampm = hour >= 12 ? '下午' : '上午';
+                  hour = hour % 12;
+                  hour = hour ? hour : 12; // The hour '0' should be '12'
+                  return `${y}/${m}/${d} ${ampm} ${hour}:${M}:${S}`;
+                })}</td>
                 <td class="border px-2 py-1">${className}</td>
                 <td class="border px-2 py-1">${name}</td>
                 <td class="border px-2 py-1">${item}</td>
