@@ -108,6 +108,33 @@
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGKUAUmPc5xyDI0wbkfQvai8OEMSKy37TUcUb9UerSoVIy7k2QGxZbUE3uLyfh09Y9/exec";
     const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv";
     let currentCardId = "";
+	
+	
+	 // 解析繁體中文時間格式：2025/6/15 下午 9:06:53
+    function parseChineseDateTime(dateStr) {
+      if (!dateStr) return null;
+      // 替換「上午」為 AM，「下午」為 PM
+      dateStr = dateStr.replace("上午", "AM").replace("下午", "PM");
+      // 分割日期和時間
+      const parts = dateStr.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})\s*(AM|PM)\s*(\d{1,2}):(\d{2}):(\d{2})/);
+      if (!parts) {
+        console.warn("無效時間格式：", dateStr);
+        return null;
+      }
+      let [, year, month, day, period, hour, minute, second] = parts;
+      // 補零
+      month = month.padStart(2, "0");
+      day = day.padStart(2, "0");
+      hour = parseInt(hour);
+      // 轉換 12 小時制為 24 小時制
+      if (period === "PM" && hour < 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      hour = hour.toString().padStart(2, "0");
+      // 構建 ISO 8601 格式
+      const isoDate = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+      const date = new Date(isoDate);
+      return date;
+    }
 
     window.onload = () => {
       loadRecords();
@@ -289,25 +316,12 @@
                 console.warn("缺少必要欄位：", row);
                 continue;
               }
+              const parsedDate = parseChineseDateTime(time);
+              const displayTime = parsedDate ? parsedDate.toLocaleString("zh-TW") : "無效時間";
+              console.log("原始時間：", time, "解析後：", displayTime);
               const tr = document.createElement("tr");
-              // Modified line to format the date and time
               tr.innerHTML = `
-                <td class="border px-2 py-1">${new Date(time).toLocaleString("zh-TW", {
-                  year: 'numeric',
-                  month: 'numeric',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: 'numeric',
-                  second: 'numeric',
-                  hour12: false, // Use 24-hour format initially for easier conversion to AM/PM text
-                  timeZone: "Asia/Taipei"
-                }).replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, (match, m, d, y, H, M, S) => {
-                  let hour = parseInt(H, 10);
-                  let ampm = hour >= 12 ? '下午' : '上午';
-                  hour = hour % 12;
-                  hour = hour ? hour : 12; // The hour '0' should be '12'
-                  return `${y}/${m}/${d} ${ampm} ${hour}:${M}:${S}`;
-                })}</td>
+                <td class="border px-2 py-1">${displayTime}</td>
                 <td class="border px-2 py-1">${className}</td>
                 <td class="border px-2 py-1">${name}</td>
                 <td class="border px-2 py-1">${item}</td>
