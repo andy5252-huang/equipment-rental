@@ -104,7 +104,7 @@
   <p class="text-xs text-gray-400 mt-6 text-center">請使用支援 Web NFC 的 Android 裝置與 Chrome 瀏覽器</p>
 
   <script>
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyiH4l74Ctuy4SmcAPC1i4BJibq_TsQK6PxgAJIs3rjOgI9E-vKIXyeA6NECG67Pxsl/exec"; // 待更新為新部署 URL
+    const GOOGLE_SCRIPT_URL = "你的新網頁應用程式URL"; // 待更新為新部署 URL
     const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv";
     let currentCardId = "";
 
@@ -169,6 +169,9 @@
             }
             currentCardId = cardId;
             const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(currentCardId)}`);
+            if (!res.ok) {
+              throw new Error(`查詢失敗：${res.status} ${res.statusText}`);
+            }
             const text = await res.text();
             if (text) {
               const [className, name] = text.split(",");
@@ -183,7 +186,7 @@
             }
             break;
           }
-          ndef.scan().catch(() => {}); // 停止掃描
+          ndef.scan().catch(() => {}); // 防止重複掃描
         };
       } catch (err) {
         alert("讀取 NFC 發生錯誤：" + err);
@@ -222,21 +225,37 @@
 
     // 讀取最新借用紀錄並顯示
     async function loadRecords() {
+      const tbody = document.getElementById("recordTable");
+      tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">🔄 讀取中...</td></tr>`;
       try {
         const res = await fetch(sheetUrl);
+        if (!res.ok) {
+          throw new Error(`無法載入 CSV：${res.status} ${res.statusText}`);
+        }
         const csvText = await res.text();
+        if (!csvText.trim()) {
+          tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+          return;
+        }
         Papa.parse(csvText, {
+          skipEmptyLines: true,
           complete: (result) => {
-            const rows = result.data.slice(1).reverse();
-            const tbody = document.getElementById("recordTable");
+            const rows = result.data.slice(1).reverse(); // 最新紀錄在上
             tbody.innerHTML = "";
-            if (rows.length === 1) {
+            if (rows.length === 0 || (rows.length === 1 && rows[0].length < 5)) {
               tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
               return;
             }
             for (const row of rows.slice(0, 10)) {
-              if (row.length < 5) continue;
+              if (row.length < 5) {
+                console.warn("無效行數據：", row);
+                continue;
+              }
               const [cardId, className, name, item, time] = row;
+              if (!time || !className || !name || !item) {
+                console.warn("缺少必要欄位：", row);
+                continue;
+              }
               const tr = document.createElement("tr");
               tr.innerHTML = `
                 <td class="border px-2 py-1">${new Date(time).toLocaleString()}</td>
@@ -246,13 +265,18 @@
               `;
               tbody.appendChild(tr);
             }
+            if (tbody.innerHTML === "") {
+              tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+            }
           },
-          error: () => {
-            document.getElementById("recordTable").innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄</td></tr>`;
+          error: (err) => {
+            console.error("PapaParse 錯誤：", err);
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄，請檢查試算表公開設定</td></tr>`;
           }
         });
       } catch (err) {
-        document.getElementById("recordTable").innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄</td></tr>`;
+        console.error("載入紀錄錯誤：", err);
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄：${err.message}</td></tr>`;
       }
     }
   </script>
