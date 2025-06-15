@@ -202,13 +202,13 @@
             if (!cardId) {
               throw new Error("無有效文字記錄");
             }
-            // 驗證 cardId 為純數字
-            if (!/^\d+$/.test(cardId)) {
-              alert("無效卡號：請使用純數字卡號");
-              document.getElementById("userInfo").innerText = "❗ 無效卡號，請重新掃描或手動輸入";
-              console.error("無效卡號：", cardId);
-              return;
-            }
+            // 驗證 cardId 
+            if (!/^[a-zA-Z0-9]+(:[a-zA-Z0-9]+)*$/.test(cardId)) {
+  alert("無效卡號：請使用正確格式的卡號（僅限英數字與冒號）");
+  document.getElementById("userInfo").innerText = "❗ 無效卡號，請重新掃描或手動輸入";
+  console.error("無效卡號：", cardId);
+  return;
+}
             currentCardId = cardId;
             document.getElementById("userInfo").innerText = `正在查詢卡號 ${cardId}...`;
             const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(currentCardId)}`);
