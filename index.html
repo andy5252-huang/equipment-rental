@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>器材借用系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+  <div class="w-full max-w-4xl grid md:grid-cols-2 gap-6">
+    <!-- 借用操作區 -->
+    <div class="bg-white shadow-lg rounded-xl p-6">
+      <h2 class="text-2xl font-bold text-indigo-600 mb-4">📦 器材借用</h2>
+
+      <label class="block text-sm mb-1">選擇器材</label>
+      <select id="item" class="w-full border border-gray-300 rounded p-2 mb-4">
+        <option value="相機">📷 相機</option>
+        <option value="腳架">📍 腳架</option>
+        <option value="麥克風">🎤 麥克風</option>
+      </select>
+
+      <button onclick="scanNFC()" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 mb-2">
+        📲 掃描 NFC 卡
+      </button>
+
+      <button onclick="manualEntry()" class="w-full bg-gray-700 text-white py-2 rounded hover:bg-gray-800 mb-4">
+        ✍️ 手動輸入
+      </button>
+
+      <div id="userInfo" class="text-center text-gray-700 font-medium mb-4"></div>
+
+      <div id="recordInput" class="hidden">
+        <label class="block text-sm mb-1">班級</label>
+        <input type="text" id="newClass" class="w-full border border-gray-300 rounded p-2 mb-2" />
+
+        <label class="block text-sm mb-1">姓名</label>
+        <input type="text" id="newName" class="w-full border border-gray-300 rounded p-2 mb-4" />
+
+        <button onclick="submitManual()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+          ✅ 送出借用紀錄
+        </button>
+      </div>
+    </div>
+
+    <!-- 紀錄顯示區 -->
+    <div class="bg-white shadow-lg rounded-xl p-6 overflow-auto">
+      <h2 class="text-2xl font-bold text-green-600 mb-4">📋 借用紀錄</h2>
+      <table class="w-full text-sm text-left border">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="border px-2 py-1">時間</th>
+            <th class="border px-2 py-1">班級</th>
+            <th class="border px-2 py-1">姓名</th>
+            <th class="border px-2 py-1">器材</th>
+          </tr>
+        </thead>
+        <tbody id="recordTable" class="text-gray-700">
+          <tr><td colspan="4" class="text-center py-2">🔄 讀取中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="text-xs text-gray-400 mt-6 text-center">請使用支援 Web NFC 的 Android 裝置與 Chrome 瀏覽器</p>
+
+  <script>
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyiH4l74Ctuy4SmcAPC1i4BJibq_TsQK6PxgAJIs3rjOgI9E-vKIXyeA6NECG67Pxsl/exec";
+    const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv";
+    let currentCardId = "";
+
+    window.onload = () => {
+      loadRecords();
+    };
+
+    function manualEntry() {
+      document.getElementById("recordInput").classList.remove("hidden");
+      document.getElementById("newClass").value = "";
+      document.getElementById("newName").value = "";
+      document.getElementById("userInfo").innerText = "請輸入班級與姓名";
+    }
+
+    async function submitManual() {
+      const className = document.getElementById("newClass").value.trim();
+      const name = document.getElementById("newName").value.trim();
+      const item = document.getElementById("item").value;
+      if (!className || !name) {
+        alert("請完整輸入班級與姓名");
+        return;
+      }
+      const cardId = "manual_" + Date.now();
+      document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
+      document.getElementById("recordInput").classList.add("hidden");
+      await submitRecord(cardId, className, name, item);
+    }
+
+    async function scanNFC() {
+      if (!("NDEFReader" in window)) {
+        alert("此裝置不支援 Web NFC，請使用 Android 裝置 + Chrome");
+        return;
+      }
+
+      const item = document.getElementById("item").value;
+      const ndef = new NDEFReader();
+
+      try {
+        await ndef.scan();
+        ndef.onreading = async (event) => {
+          const decoder = new TextDecoder();
+          for (const record of event.message.records) {
+            currentCardId = decoder.decode(record.data);
+            const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${currentCardId}`);
+            const text = await res.text();
+
+            if (text) {
+              const [className, name] = text.split(",");
+              document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
+              await submitRecord(currentCardId, className, name, item);
+            } else {
+              document.getElementById("userInfo").innerText = `❗ 此卡號未登記，請填寫班級與姓名`;
+              document.getElementById("recordInput").classList.remove("hidden");
+            }
+            break;
+          }
+        };
+      } catch (err) {
+        alert("讀取 NFC 發生錯誤：" + err);
+      }
+    }
+
+    async function submitRecord(cardId, className, name, item) {
+      const data = { cardId, className, name, item };
+      try {
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          body: JSON.stringify(data),
+          headers: { "Content-Type": "application/json" }
+        });
+        const result = await res.text();
+        alert(`✅ 已記錄：${className} ${name} 借用 ${item}`);
+        loadRecords();
+      } catch (err) {
+        alert("送出失敗：" + err.message);
+      }
+    }
+
+    async function loadRecords() {
+      try {
+        const res = await fetch(sheetUrl);
+        const csvText = await res.text();
+        const rows = csvText.trim().split("\n").slice(1).reverse(); // 最新在上
+        const tbody = document.getElementById("recordTable");
+        tbody.innerHTML = "";
+        for (const row of rows.slice(0, 10)) {
+          const [cardId, className, name, item, time] = row.split(",");
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="border px-2 py-1">${new Date(time).toLocaleString()}</td>
+            <td class="border px-2 py-1">${className}</td>
+            <td class="border px-2 py-1">${name}</td>
+            <td class="border px-2 py-1">${item}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        document.getElementById("recordTable").innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>
