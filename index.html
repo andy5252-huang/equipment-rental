@@ -72,13 +72,16 @@
       loadRecords();
     };
 
+    // 手動輸入按鈕點擊事件
     function manualEntry() {
       document.getElementById("recordInput").classList.remove("hidden");
       document.getElementById("newClass").value = "";
       document.getElementById("newName").value = "";
       document.getElementById("userInfo").innerText = "請輸入班級與姓名";
+      currentCardId = ""; // 清空卡號
     }
 
+    // 手動送出借用紀錄
     async function submitManual() {
       const className = document.getElementById("newClass").value.trim();
       const name = document.getElementById("newName").value.trim();
@@ -87,12 +90,14 @@
         alert("請完整輸入班級與姓名");
         return;
       }
+      // 手動輸入沒有卡號，用特殊字串代替
       const cardId = "manual_" + Date.now();
       document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
       document.getElementById("recordInput").classList.add("hidden");
       await submitRecord(cardId, className, name, item);
     }
 
+    // NFC 掃描
     async function scanNFC() {
       if (!("NDEFReader" in window)) {
         alert("此裝置不支援 Web NFC，請使用 Android 裝置 + Chrome");
@@ -100,24 +105,35 @@
       }
 
       const item = document.getElementById("item").value;
+      if (!item) {
+        alert("請先選擇器材");
+        return;
+      }
+
       const ndef = new NDEFReader();
 
       try {
         await ndef.scan();
+        document.getElementById("userInfo").innerText = "請將 NFC 卡靠近裝置...";
         ndef.onreading = async (event) => {
           const decoder = new TextDecoder();
           for (const record of event.message.records) {
             currentCardId = decoder.decode(record.data);
-            const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${currentCardId}`);
+            // 查詢使用者資料
+            const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(currentCardId)}`);
             const text = await res.text();
 
             if (text) {
               const [className, name] = text.split(",");
               document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
               await submitRecord(currentCardId, className, name, item);
+              document.getElementById("recordInput").classList.add("hidden");
             } else {
               document.getElementById("userInfo").innerText = `❗ 此卡號未登記，請填寫班級與姓名`;
               document.getElementById("recordInput").classList.remove("hidden");
+              // 清空輸入框，讓使用者填寫
+              document.getElementById("newClass").value = "";
+              document.getElementById("newName").value = "";
             }
             break;
           }
@@ -127,6 +143,7 @@
       }
     }
 
+    // 送出紀錄函式 (POST 到 Apps Script)
     async function submitRecord(cardId, className, name, item) {
       const data = { cardId, className, name, item };
       try {
@@ -136,22 +153,35 @@
           headers: { "Content-Type": "application/json" }
         });
         const result = await res.text();
-        alert(`✅ 已記錄：${className} ${name} 借用 ${item}`);
-        loadRecords();
+        if (result === "成功") {
+          alert(`✅ 已記錄：${className} ${name} 借用 ${item}`);
+          loadRecords();
+        } else {
+          alert("送出失敗：" + result);
+        }
       } catch (err) {
         alert("送出失敗：" + err.message);
       }
     }
 
+    // 讀取最新借用紀錄並顯示
     async function loadRecords() {
       try {
         const res = await fetch(sheetUrl);
         const csvText = await res.text();
-        const rows = csvText.trim().split("\n").slice(1).reverse(); // 最新在上
+        const rows = csvText.trim().split("\n").slice(1).reverse(); // 最新的放上面
         const tbody = document.getElementById("recordTable");
         tbody.innerHTML = "";
+        if (rows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+          return;
+        }
         for (const row of rows.slice(0, 10)) {
-          const [cardId, className, name, item, time] = row.split(",");
+          // 這裡拆欄位注意逗號可能在字串內，這是簡易拆法，如有特殊符號請改用 CSV 解析器
+          const cols = row.split(",");
+          // 欄位排列：卡號,班級,姓名,器材,時間
+          if (cols.length < 5) continue;
+          const [cardId, className, name, item, time] = cols;
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td class="border px-2 py-1">${new Date(time).toLocaleString()}</td>
