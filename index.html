@@ -1,0 +1,315 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>器材借用系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+  <div class="w-full max-w-4xl grid md:grid-cols-2 gap-6">
+    <div class="bg-white shadow-lg rounded-xl p-6">
+      <h2 class="text-2xl font-bold text-indigo-600 mb-4">📦 器材借用</h2>
+
+      <label class="block text-sm mb-1">選擇器材</label>
+      <select id="item" class="w-full border border-gray-300 rounded p-2 mb-4">
+        <option value="相機">📷 相機</option>
+        <option value="腳架">📍 腳架</option>
+        <option value="麥克風">🎤 麥克風</option>
+      </select>
+
+      <label class="block text-sm mb-1">掃描 NFC 卡</label>
+      <input type="text" id="nfcInput" class="w-full border border-gray-300 rounded p-2 mb-4" placeholder="請掃描 NFC 卡..." />
+
+      <button onclick="manualEntry()" class="w-full bg-gray-700 text-white py-2 rounded hover:bg-gray-800 mb-4">
+        ✍️ 手動輸入
+      </button>
+
+      <div id="userInfo" class="text-center text-gray-700 font-medium mb-4"></div>
+
+      <div id="recordInput" class="hidden">
+        <label class="block text-sm mb-1">班級</label>
+        <input type="text" id="newClass" class="w-full border border-gray-300 rounded p-2 mb-2" />
+
+        <label class="block text-sm mb-1">姓名</label>
+        <input type="text" id="newName" class="w-full border border-gray-300 rounded p-2 mb-4" />
+
+        <button onclick="submitManual()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+          ✅ 送出借用紀錄
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white shadow-lg rounded-xl p-6 overflow-auto">
+      <h2 class="text-2xl font-bold text-green-600 mb-4">📋 借用紀錄</h2>
+      <table class="w-full text-sm text-left border">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="border px-2 py-1">時間</th>
+            <th class="border px-2 py-1">班級</th>
+            <th class="border px-2 py-1">姓名</th>
+            <th class="border px-2 py-1">器材</th>
+          </tr>
+        </thead>
+        <tbody id="recordTable" class="text-gray-700">
+          <tr><td colspan="4" class="text-center py-2">🔄 讀取中...</td></tr>
+        </tbody>
+      </table>
+      <button onclick="loadRecords()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 mt-4">
+        🔄 重新載入紀錄
+      </button>
+    </div>
+  </div>
+
+  <p class="text-xs text-gray-400 mt-6 text-center">請使用支援 HID NFC 讀卡器的設備</p>
+
+  <script>
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGKUAUmPc5xyDI0wbkfQvai8OEMSKy37TUcUb9UerSoVIy7k2QGxZbUE3uLyfh09Y9/exec";
+    const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv";
+    let currentCardId = "";
+
+    // 解析繁體中文時間格式：2025/6/15 下午 9:06:53
+    function parseChineseDateTime(dateStr) {
+      if (!dateStr) return null;
+      dateStr = dateStr.replace("上午", "AM").replace("下午", "PM");
+      const parts = dateStr.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})\s*(AM|PM)\s*(\d{1,2}):(\d{2}):(\d{2})/);
+      if (!parts) {
+        console.warn("無效時間格式：", dateStr);
+        return null;
+      }
+      let [, year, month, day, period, hour, minute, second] = parts;
+      month = month.padStart(2, "0");
+      day = day.padStart(2, "0");
+      hour = parseInt(hour);
+      if (period === "PM" && hour < 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      hour = hour.toString().padStart(2, "0");
+      const isoDate = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+      const date = new Date(isoDate);
+      return date;
+    }
+
+    window.onload = () => {
+      loadRecords();
+      setupNFCInput();
+    };
+
+    // 設置 NFC 輸入框監聽
+    function setupNFCInput() {
+      const nfcInput = document.getElementById("nfcInput");
+      nfcInput.focus();
+      nfcInput.addEventListener("input", async (event) => {
+        const cardId = event.target.value.trim();
+        const cardIdPattern = /^\d{10}$/;
+        if (cardId && cardIdPattern.test(cardId)) {
+          nfcInput.value = ""; // 清空輸入框
+          await processNFCInput(cardId);
+        }
+      });
+      // 保持輸入框焦點
+      nfcInput.addEventListener("blur", () => {
+        setTimeout(() => nfcInput.focus(), 100);
+      });
+    }
+
+    // 處理 NFC 輸入的卡號
+    async function processNFCInput(cardId) {
+      const item = document.getElementById("item").value;
+      if (!item) {
+        alert("請先選擇器材");
+        document.getElementById("userInfo").innerText = "❗ 請先選擇器材";
+        return;
+      }
+
+      currentCardId = cardId;
+      document.getElementById("userInfo").innerText = `正在查詢卡號 ${cardId}...`;
+      try {
+        const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(cardId)}`);
+        if (!res.ok) {
+          throw new Error(`查詢失敗：${res.status} ${res.statusText}`);
+        }
+        const text = await res.text();
+        console.log("查詢結果：", text);
+        if (text && !text.startsWith("無效卡號") && !text.startsWith("伺服器錯誤")) {
+          const [className, name] = text.split(",");
+          if (!className || !name) {
+            throw new Error("查詢回應格式錯誤");
+          }
+          document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
+          await submitRecord(cardId, className, name, item);
+          document.getElementById("recordInput").classList.add("hidden");
+        } else {
+          document.getElementById("userInfo").innerText = `❗ 此卡號未登記，請填寫班級與姓名`;
+          document.getElementById("recordInput").classList.remove("hidden");
+          document.getElementById("newClass").value = "";
+          document.getElementById("newName").value = "";
+        }
+      } catch (err) {
+        alert(`查詢失敗：${err.message}`);
+        document.getElementById("userInfo").innerText = `❌ 查詢失敗：${err.message}`;
+        console.error("查詢錯誤：", err);
+      }
+    }
+
+    // 手動輸入按鈕點擊事件
+    function manualEntry() {
+      document.getElementById("recordInput").classList.remove("hidden");
+      document.getElementById("newClass").value = "";
+      document.getElementById("newName").value = "";
+      document.getElementById("userInfo").innerText = "請輸入班級與姓名";
+      currentCardId = "";
+    }
+
+    // 手動送出借用紀錄
+    async function submitManual() {
+      const className = document.getElementById("newClass").value.trim();
+      const name = document.getElementById("newName").value.trim();
+      const item = document.getElementById("item").value;
+      if (!className || !name) {
+        alert("請完整輸入班級與姓名");
+        return;
+      }
+      if (className.length > 20 || name.length > 20) {
+        alert("班級或姓名過長，請縮短至 20 字以內");
+        return;
+      }
+      const cardId = currentCardId || "manual_" + Date.now();
+      document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
+      document.getElementById("recordInput").classList.add("hidden");
+      await submitRecord(cardId, className, name, item);
+    }
+
+    // 送出紀錄函式 (POST 到 Apps Script)
+    async function submitRecord(cardId, className, name, item) {
+      try {
+        const data = new URLSearchParams({
+          cardId,
+          className,
+          name,
+          item
+        });
+        console.log("提交紀錄：", { cardId, className, name, item });
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          body: data,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" }
+        });
+        if (!res.ok) {
+          throw new Error(`伺服器回應錯誤：${res.status} ${res.statusText}`);
+        }
+        const result = await res.text();
+        console.log("提交結果：", result);
+        if (result === "成功") {
+          alert(`✅ 已記錄：${className} ${name} 借用 ${item}`);
+          loadRecords();
+        } else {
+          alert(`❌ 送出失敗：${result || "未知錯誤，請稍後重試"}`);
+        }
+      } catch (err) {
+        alert(`❌ 送出失敗：${err.message}。請檢查網路或確認 Google Apps Script URL 正確。`);
+        console.error("提交錯誤：", err);
+      }
+    }
+
+    // 讀取最新借用紀錄並顯示
+    async function loadRecords() {
+      const tbody = document.getElementById("recordTable");
+      tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">🔄 讀取中...</td></tr>`;
+      try {
+        const res = await fetch(sheetUrl);
+        if (!res.ok) {
+          throw new Error(`無法載入 CSV：${res.status} ${res.statusText}`);
+        }
+        const csvText = await res.text();
+        if (!csvText.trim()) {
+          tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+          return;
+        }
+        Papa.parse(csvText, {
+          skipEmptyLines: true,
+          complete: (result) => {
+            const rows = result.data.slice(1).reverse();
+            tbody.innerHTML = "";
+            if (rows.length === 0 || (rows.length === 1 && rows[0].length < 5)) {
+              tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+              return;
+            }
+            for (const row of rows.slice(0, 10)) {
+              if (row.length < 5) {
+                console.warn("無效行數據：", row);
+                continue;
+              }
+              const [cardId, className, name, item, time] = row;
+              if (!time || !className || !name || !item) {
+                console.warn("缺少必要欄位：", row);
+                continue;
+              }
+              const parsedDate = parseChineseDateTime(time);
+              const displayTime = parsedDate ? parsedDate.toLocaleString("zh-TW") : "無效時間";
+              console.log("原始時間：", time, "解析後：", displayTime);
+              const tr = document.createElement("tr");
+              tr.innerHTML = `
+                <td class="border px-2 py-1">${displayTime}</td>
+                <td class="border px-2 py-1">${className}</td>
+                <td class="border px-2 py-1">${name}</td>
+                <td class="border px-2 py-1">${item}</td>
+              `;
+              tbody.appendChild(tr);
+            }
+            if (tbody.innerHTML === "") {
+              tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+            }
+          },
+          error: (err) => {
+            console.error("PapaParse 錯誤：", err);
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄，請檢查試算表公開設定</td></tr>`;
+          }
+        });
+      } catch (err) {
+        console.error("載入紀錄錯誤：", err);
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2 text-red-500">❌ 無法載入紀錄：${err.message}</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>
