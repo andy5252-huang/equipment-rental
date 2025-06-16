@@ -289,11 +289,22 @@
     // 載入器材清單
     async function loadItems() {
       try {
-        const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`);
+        const url = new URL(GOOGLE_SCRIPT_URL);
+        url.searchParams.set("action", "getItems");
+        const res = await fetch(url.toString());
         if (!res.ok) {
           throw new Error(`無法載入器材清單：${res.status} ${res.statusText}`);
         }
-        const items = await res.json();
+        let items;
+        try {
+          items = await res.json();
+        } catch (jsonErr) {
+          const text = await res.text();
+          throw new Error(`後端返回無效 JSON：${text}`);
+        }
+        if (!Array.isArray(items)) {
+          throw new Error("後端返回的器材清單格式錯誤");
+        }
         const itemSelect = document.getElementById("item");
         const existingItemsSelect = document.getElementById("existingItems");
         itemSelect.innerHTML = '<option value="">請選擇器材</option>';
@@ -469,11 +480,16 @@
         alert("請完整輸入班級與姓名");
         return;
       }
+      if (!item) {
+        alert("請選擇器材");
+        return;
+      }
       if (className.length > 20 || name.length > 20) {
         alert("班級或姓名過長，請縮短至 20 字以內");
         return;
       }
-      const cardId = currentCardId || "manual_" + Date.now();
+      // 生成符合後端要求的 10 位數字 cardId
+      const cardId = currentCardId || `000000${Math.floor(Math.random() * 10000)}`.slice(-10);
       document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
       document.getElementById("recordInput").classList.add("hidden");
       await submitRecord(cardId, className, name, item);
@@ -481,6 +497,11 @@
 
     // 送出紀錄函式 (POST 到 Apps Script)
     async function submitRecord(cardId, className, name, item) {
+      if (!cardId || !className || !name || !item) {
+        alert("缺少必要參數，請確保卡號、班級、姓名和器材已填寫");
+        document.getElementById("userInfo").innerText = "❌ 缺少必要參數";
+        return;
+      }
       try {
         const data = new URLSearchParams({
           cardId,
