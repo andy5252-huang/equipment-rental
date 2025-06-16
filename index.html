@@ -52,14 +52,18 @@
       <h2 class="text-2xl font-bold text-indigo-600 mb-4">📦 器材借用</h2>
 
       <label class="block text-sm mb-1">選擇器材</label>
-      <select id="item" class="w-full border border-gray-300 rounded p-2 mb-4">
+      <select id="item" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
         <option value="相機">📷 相機</option>
         <option value="腳架">📍 腳架</option>
         <option value="麥克風">🎤 麥克風</option>
       </select>
 
       <label class="block text-sm mb-1">掃描 NFC 卡</label>
-      <input type="text" id="nfcInput" class="w-full border border-gray-300 rounded p-2 mb-4" placeholder="請掃描 NFC 卡..." />
+      <input type="text" id="nfcInput" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="請掃描 NFC 卡..." />
+
+      <button onclick="focusNFCInput()" class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 mb-2">
+        🔄 重新聚焦 NFC 輸入
+      </button>
 
       <button onclick="manualEntry()" class="w-full bg-gray-700 text-white py-2 rounded hover:bg-gray-800 mb-4">
         ✍️ 手動輸入
@@ -69,10 +73,10 @@
 
       <div id="recordInput" class="hidden">
         <label class="block text-sm mb-1">班級</label>
-        <input type="text" id="newClass" class="w-full border border-gray-300 rounded p-2 mb-2" />
+        <input type="text" id="newClass" class="w-full border border-gray-300 rounded p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 
         <label class="block text-sm mb-1">姓名</label>
-        <input type="text" id="newName" class="w-full border border-gray-300 rounded p-2 mb-4" />
+        <input type="text" id="newName" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 
         <button onclick="submitManual()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
           ✅ 送出借用紀錄
@@ -138,18 +142,24 @@
     function setupNFCInput() {
       const nfcInput = document.getElementById("nfcInput");
       nfcInput.focus();
+      let debounceTimer;
       nfcInput.addEventListener("input", async (event) => {
-        const cardId = event.target.value.trim();
-        const cardIdPattern = /^\d{10}$/;
-        if (cardId && cardIdPattern.test(cardId)) {
-          nfcInput.value = ""; // 清空輸入框
-          await processNFCInput(cardId);
-        }
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          const cardId = event.target.value.trim();
+          const cardIdPattern = /^\d{10}$/;
+          if (cardId && cardIdPattern.test(cardId)) {
+            nfcInput.value = ""; // 清空輸入框
+            await processNFCInput(cardId);
+          }
+        }, 300); // 300ms 防抖
       });
-      // 保持輸入框焦點
-      nfcInput.addEventListener("blur", () => {
-        setTimeout(() => nfcInput.focus(), 100);
-      });
+    }
+
+    // 重新聚焦 NFC 輸入框
+    function focusNFCInput() {
+      document.getElementById("nfcInput").focus();
+      document.getElementById("userInfo").innerText = "請掃描 NFC 卡...";
     }
 
     // 處理 NFC 輸入的卡號
