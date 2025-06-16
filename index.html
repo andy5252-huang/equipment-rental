@@ -1,4 +1,43 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
@@ -9,11 +48,11 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
   <header class="w-full max-w-4xl mb-6 text-center">
-    <div class="flex items-center justify-center mb-2">
-      <img src="https://www.hs.ntnu.edu.tw/static/webroot/G162268916978407/image/NP162270058363015.png" alt="國立臺灣師範大學附屬高級中學校徽" class="w-20 h-20 mr-2" />
+    <div class="flex items-center justify-center gap-4">
+      <img src="https://www.hs.ntnu.edu.tw/static/webroot/G162268916978407/image/NP162270058363015.png" alt="校徽" class="h-16" />
       <h1 class="text-3xl font-bold text-indigo-600">附中機研社器材借用系統</h1>
     </div>
-    <div id="currentTime" class="text-lg text-gray-600"></div>
+    <div id="currentTime" class="text-gray-600 text-lg mt-2"></div>
   </header>
 
   <div class="w-full max-w-4xl grid md:grid-cols-2 gap-6">
@@ -22,16 +61,11 @@
 
       <label class="block text-sm mb-1">選擇器材</label>
       <select id="item" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        <!-- 動態填充 -->
+        <option value="">請選擇器材...</option>
+        <option value="相機">📷 相機</option>
+        <option value="腳架">📍 腳架</option>
+        <option value="麥克風">🎤 麥克風</option>
       </select>
-
-      <button id="manageItemsBtn" onclick="showLogin()" class="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700 mb-4">
-        🛠️ 管理器材清單
-      </button>
-
-      <button id="logoutBtn" onclick="logout()" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 mb-4 hidden">
-        🚪 登出
-      </button>
 
       <label class="block text-sm mb-1">掃描 NFC 卡</label>
       <input type="text" id="nfcInput" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="請掃描 NFC 卡..." />
@@ -46,20 +80,6 @@
 
       <div id="userInfo" class="text-center text-gray-700 font-medium mb-4"></div>
 
-      <div id="loginForm" class="hidden">
-        <h3 class="text-lg font-bold text-indigo-600 mb-2">管理員登錄</h3>
-        <label class="block text-sm mb-1">帳號</label>
-        <input type="text" id="username" class="w-full border border-gray-300 rounded p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="輸入帳號" />
-        <label class="block text-sm mb-1">密碼</label>
-        <input type="password" id="password" class="w-full border border-gray-300 rounded p-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="輸入密碼" />
-        <button onclick="login()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 mb-2">
-          ✅ 登錄
-        </button>
-        <button onclick="closeLogin()" class="w-full bg-gray-500 text-white py-2 rounded hover:bg-gray-600">
-          ❌ 取消
-        </button>
-      </div>
-
       <div id="recordInput" class="hidden">
         <label class="block text-sm mb-1">班級</label>
         <input type="text" id="newClass" class="w-full border border-gray-300 rounded p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -69,25 +89,6 @@
 
         <button onclick="submitManual()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
           ✅ 送出借用紀錄
-        </button>
-      </div>
-
-      <div id="itemManage" class="hidden">
-        <h3 class="text-lg font-bold text-purple-600 mb-2">管理器材清單</h3>
-        <label class="block text-sm mb-1">新增器材</label>
-        <input type="text" id="newItem" class="w-full border border-gray-300 rounded p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="輸入新器材名稱" />
-        <button onclick="addItem()" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 mb-2">
-          ➕ 新增
-        </button>
-        <label class="block text-sm mb-1">現有器材</label>
-        <select id="existingItems" class="w-full border border-gray-300 rounded p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <!-- 動態填充 -->
-        </select>
-        <button onclick="deleteItem()" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 mb-2">
-          🗑️ 刪除選中器材
-        </button>
-        <button onclick="closeItemManage()" class="w-full bg-gray-500 text-white py-2 rounded hover:bg-gray-600">
-          ❌ 關閉
         </button>
       </div>
     </div>
@@ -115,33 +116,46 @@
 
   <p class="text-xs text-gray-400 mt-6 text-center">請使用支援 HID NFC 讀卡器的設備</p>
 
-  <script>
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGKUAUmPc5xyDI0wbkfQvai8OEMSKy37TUcUb9UerSoVIy7k2QGxZbUE3uLyfh09Y9/exec";
-    const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv";
-    let currentCardId = "";
-    let isAuthenticated = false;
-
-    // 顯示當前時間
-    function updateCurrentTime() {
-      const now = new Date();
-      const options = {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        weekday: 'long',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Taipei'
-      };
-      document.getElementById("currentTime").textContent = now.toLocaleString('zh-TW', options);
+  <script type="text/javascript">
+    var gk_isXlsx = false;
+    var gk_xlsxFileLookup = {};
+    var gk_fileData = {};
+    function filledCell(cell) {
+      return cell !== '' && cell != null;
+    }
+    function loadFileData(filename) {
+      if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+        try {
+          var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+          var firstSheetName = workbook.SheetNames[0];
+          var worksheet = workbook.Sheets[firstSheetName];
+          var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+          var filteredData = jsonData.filter(row => row.some(filledCell));
+          var headerRowIndex = filteredData.findIndex((row, index) =>
+            row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+          );
+          if (headerRowIndex === -1 || headerRowIndex > 25) {
+            headerRowIndex = 0;
+          }
+          var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+          csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+          return csv;
+        } catch (e) {
+          console.error(e);
+          return "";
+        }
+      }
+      return gk_fileData[filename] || "";
     }
 
-    // 每秒更新時間
-    setInterval(updateCurrentTime, 1000);
+    const CONFIG = {
+      GOOGLE_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxGKUAUmPc5xyDI0wbkfQvai8OEMSKy37TUcUb9UerSoVIy7k2QGxZbUE3uLyfh09Y9/exec",
+      RECORD_SHEET_URL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=946322504&single=true&output=csv",
+      ITEM_SHEET_URL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFcsha2D_jqY64xYXyeqbnQ3-PuZv7GobhL6VTFsFTvV_YeXaGNUHJLUhkwZB_zvVeO_t8zEZ-_JyR/pub?gid=130494770&single=true&output=csv"
+    };
+    let currentCardId = "";
 
-    // 解析繁體中文時間格式：2025/6/15 下午 9:06:53
+    // 解析繁體中文時間格式
     function parseChineseDateTime(dateStr) {
       if (!dateStr) return null;
       dateStr = dateStr.replace("上午", "AM").replace("下午", "PM");
@@ -162,66 +176,72 @@
       return date;
     }
 
+    // 更新當前時間
+    function updateCurrentTime() {
+      const now = new Date();
+      const timeStr = now.toLocaleString("zh-TW", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        hour12: true
+      });
+      document.getElementById("currentTime").innerText = `目前時間：${timeStr}`;
+    }
+
+    // 載入器材清單
+    async function loadItems() {
+      const select = document.getElementById("item");
+      try {
+        const res = await fetch(CONFIG.ITEM_SHEET_URL);
+        if (!res.ok) {
+          throw new Error(`無法載入器材清單：${res.status} ${res.statusText}`);
+        }
+        const csvText = await res.text();
+        if (!csvText.trim()) {
+          console.warn("器材清單為空，使用預設選項");
+          return;
+        }
+        Papa.parse(csvText, {
+          skipEmptyLines: true,
+          header: true, // 使用第一行作為欄位名稱
+          complete: (result) => {
+            const items = result.data
+              .map(row => row['器材名稱']) // 假設欄位為「器材名稱」
+              .filter(item => item && item.trim() && item.length <= 50); // 過濾無效或過長項目
+            if (items.length === 0) {
+              console.warn("無有效器材數據，使用預設選項");
+              return;
+            }
+            select.innerHTML = '<option value="">請選擇器材...</option>';
+            for (const item of items) {
+              const option = document.createElement("option");
+              option.value = item;
+              option.innerText = item;
+              select.appendChild(option);
+            }
+            console.log("已載入器材清單：", items);
+          },
+          error: (err) => {
+            console.error("載入器材清單錯誤：", err);
+            alert("❌ 無法載入器材清單，將使用預設選項");
+          }
+        });
+      } catch (err) {
+        console.error("載入器材清單錯誤：", err);
+        alert("❌ 無法載入器材清單，將使用預設選項");
+      }
+    }
+
     window.onload = () => {
+      updateCurrentTime();
+      setInterval(updateCurrentTime, 1000);
+      loadItems();
       loadRecords();
       setupNFCInput();
-      loadItems();
-      updateCurrentTime();
-      updateManageButton();
     };
-
-    // 更新管理器材按鈕的顯示
-    function updateManageButton() {
-      const manageBtn = document.getElementById("manageItemsBtn");
-      const logoutBtn = document.getElementById("logoutBtn");
-      if (isAuthenticated) {
-        manageBtn.classList.add("hidden");
-        logoutBtn.classList.remove("hidden");
-      } else {
-        manageBtn.classList.remove("hidden");
-        logoutBtn.classList.add("hidden");
-      }
-    }
-
-    // 顯示登錄表單
-    function showLogin() {
-      document.getElementById("loginForm").classList.remove("hidden");
-      document.getElementById("recordInput").classList.add("hidden");
-      document.getElementById("itemManage").classList.add("hidden");
-      document.getElementById("username").value = "";
-      document.getElementById("password").value = "";
-      document.getElementById("userInfo").innerText = "請輸入管理員帳號和密碼";
-    }
-
-    // 關閉登錄表單
-    function closeLogin() {
-      document.getElementById("loginForm").classList.add("hidden");
-      document.getElementById("userInfo").innerText = "請掃描 NFC 卡或選擇操作";
-    }
-
-    // 登錄驗證
-    function login() {
-      const username = document.getElementById("username").value.trim();
-      const password = document.getElementById("password").value.trim();
-      if (username === "admin" && password === "0000") {
-        isAuthenticated = true;
-        document.getElementById("loginForm").classList.add("hidden");
-        document.getElementById("userInfo").innerText = "管理員登錄成功";
-        updateManageButton();
-        manageItems();
-      } else {
-        alert("帳號或密碼錯誤，請重試");
-        document.getElementById("userInfo").innerText = "❌ 帳號或密碼錯誤";
-      }
-    }
-
-    // 登出
-    function logout() {
-      isAuthenticated = false;
-      document.getElementById("itemManage").classList.add("hidden");
-      document.getElementById("userInfo").innerText = "已登出，請掃描 NFC 卡或選擇操作";
-      updateManageButton();
-    }
 
     // 設置 NFC 輸入框監聽
     function setupNFCInput() {
@@ -234,10 +254,10 @@
           const cardId = event.target.value.trim();
           const cardIdPattern = /^\d{10}$/;
           if (cardId && cardIdPattern.test(cardId)) {
-            nfcInput.value = ""; // 清空輸入框
+            nfcInput.value = "";
             await processNFCInput(cardId);
           }
-        }, 300); // 300ms 防抖
+        }, 150);
       });
     }
 
@@ -245,146 +265,6 @@
     function focusNFCInput() {
       document.getElementById("nfcInput").focus();
       document.getElementById("userInfo").innerText = "請掃描 NFC 卡...";
-    }
-
-    // 載入器材清單
-    async function loadItems() {
-      try {
-        const url = new URL(GOOGLE_SCRIPT_URL);
-        url.searchParams.set("action", "getItems");
-        console.log("載入器材清單請求：", url.toString());
-        const res = await fetch(url.toString());
-        if (!res.ok) {
-          throw new Error(`無法載入器材清單：${res.status} ${res.statusText}`);
-        }
-        // 先讀取回應為文字
-        const text = await res.text();
-        let items;
-        try {
-          // 嘗試解析為 JSON
-          const json = JSON.parse(text);
-          if (json.status === "success" && Array.isArray(json.data)) {
-            items = json.data;
-          } else {
-            throw new Error(`後端回應格式錯誤：${text}`);
-          }
-        } catch (jsonErr) {
-          throw new Error(`後端返回無效 JSON：${text}`);
-        }
-        const itemSelect = document.getElementById("item");
-        const existingItemsSelect = document.getElementById("existingItems");
-        itemSelect.innerHTML = '<option value="">請選擇器材</option>';
-        existingItemsSelect.innerHTML = '<option value="">請選擇要刪除的器材</option>';
-        items.forEach(item => {
-          const option1 = document.createElement("option");
-          option1.value = item;
-          option1.textContent = item;
-          itemSelect.appendChild(option1);
-          const option2 = document.createElement("option");
-          option2.value = item;
-          option2.textContent = item;
-          existingItemsSelect.appendChild(option2);
-        });
-      } catch (err) {
-        console.error("載入器材清單錯誤：", err);
-        document.getElementById("userInfo").innerText = `❌ 無法載入器材清單：${err.message}`;
-      }
-    }
-
-    // 顯示管理器材界面
-    function manageItems() {
-      if (!isAuthenticated) {
-        showLogin();
-        return;
-      }
-      document.getElementById("itemManage").classList.remove("hidden");
-      document.getElementById("recordInput").classList.add("hidden");
-      document.getElementById("loginForm").classList.add("hidden");
-      document.getElementById("userInfo").innerText = "請管理器材清單";
-    }
-
-    // 關閉管理器材界面
-    function closeItemManage() {
-      document.getElementById("itemManage").classList.add("hidden");
-      document.getElementById("userInfo").innerText = "請掃描 NFC 卡或選擇操作";
-    }
-
-    // 新增器材
-    async function addItem() {
-      if (!isAuthenticated) {
-        alert("請先登錄管理員帳號");
-        showLogin();
-        return;
-      }
-      const newItem = document.getElementById("newItem").value.trim();
-      if (!newItem) {
-        alert("請輸入器材名稱");
-        return;
-      }
-      if (newItem.length > 50) {
-        alert("器材名稱過長，請縮短至 50 字以內");
-        return;
-      }
-      try {
-        const data = new URLSearchParams({ action: "addItem", item: newItem });
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: "POST",
-          body: data,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" }
-        });
-        if (!res.ok) {
-          throw new Error(`新增器材失敗：${res.status} ${res.statusText}`);
-        }
-        const json = await res.json();
-        if (json.status === "success") {
-          alert(`✅ 已新增器材：${newItem}`);
-          document.getElementById("newItem").value = "";
-          await loadItems();
-        } else {
-          alert(`❌ 新增失敗：${json.message || "未知錯誤"}`);
-        }
-      } catch (err) {
-        alert(`❌ 新增器材失敗：${err.message}`);
-        console.error("新增器材錯誤：", err);
-      }
-    }
-
-    // 刪除器材
-    async function deleteItem() {
-      if (!isAuthenticated) {
-        alert("請先登錄管理員帳號");
-        showLogin();
-        return;
-      }
-      const item = document.getElementById("existingItems").value;
-      if (!item) {
-        alert("請選擇要刪除的器材");
-        return;
-      }
-      if (!confirm(`確定要刪除器材「${item}」？`)) {
-        return;
-      }
-      try {
-        const data = new URLSearchParams({ action: "deleteItem", item: item });
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: "POST",
-          body: data,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" }
-        });
-        if (!res.ok) {
-          throw new Error(`刪除器材失敗：${res.status} ${res.statusText}`);
-        }
-        const json = await res.json();
-        if (json.status === "success") {
-          alert(`✅ 已刪除器材：${item}`);
-          await loadItems();
-        } else {
-          alert(`❌ 刪除失敗：${json.message || "未知錯誤"}`);
-        }
-      } catch (err) {
-        alert(`❌ 刪除器材失敗：${err.message}`);
-        console.error("刪除器材錯誤：", err);
-      }
     }
 
     // 處理 NFC 輸入的卡號
@@ -399,7 +279,7 @@
       currentCardId = cardId;
       document.getElementById("userInfo").innerText = `正在查詢卡號 ${cardId}...`;
       try {
-        const res = await fetch(`${GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(cardId)}`);
+        const res = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?cardId=${encodeURIComponent(cardId)}`);
         if (!res.ok) {
           throw new Error(`查詢失敗：${res.status} ${res.statusText}`);
         }
@@ -429,8 +309,6 @@
     // 手動輸入按鈕點擊事件
     function manualEntry() {
       document.getElementById("recordInput").classList.remove("hidden");
-      document.getElementById("itemManage").classList.add("hidden");
-      document.getElementById("loginForm").classList.add("hidden");
       document.getElementById("newClass").value = "";
       document.getElementById("newName").value = "";
       document.getElementById("userInfo").innerText = "請輸入班級與姓名";
@@ -446,28 +324,26 @@
         alert("請完整輸入班級與姓名");
         return;
       }
-      if (!item) {
-        alert("請選擇器材");
-        return;
-      }
       if (className.length > 20 || name.length > 20) {
         alert("班級或姓名過長，請縮短至 20 字以內");
         return;
       }
-      // 生成符合後端要求的 10 位數字 cardId
-      const cardId = currentCardId || `000000${Math.floor(Math.random() * 10000)}`.slice(-10);
+      const cardId = currentCardId || `manual_${generateUUID()}`;
       document.getElementById("userInfo").innerHTML = `👤 使用者：<strong>${className} ${name}</strong>`;
       document.getElementById("recordInput").classList.add("hidden");
       await submitRecord(cardId, className, name, item);
     }
 
-    // 送出紀錄
+    // 生成唯一 ID
+    function generateUUID() {
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+    }
+
+    // 送出紀錄函式
     async function submitRecord(cardId, className, name, item) {
-      if (!cardId || !className || !name || !item) {
-        alert("缺少必要參數，請確保卡號、班級、姓名和器材已填寫");
-        document.getElementById("userInfo").innerText = "❌ 缺少必要參數";
-        return;
-      }
       try {
         const data = new URLSearchParams({
           cardId,
@@ -476,7 +352,7 @@
           item
         });
         console.log("提交紀錄：", { cardId, className, name, item });
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
+        const res = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
           method: "POST",
           body: data,
           headers: { "Content-Type": "application/x-www-form-urlencoded" }
@@ -484,12 +360,13 @@
         if (!res.ok) {
           throw new Error(`伺服器回應錯誤：${res.status} ${res.statusText}`);
         }
-        const json = await res.json();
-        if (json.status === "success") {
+        const result = await res.text();
+        console.log("提交結果：", result);
+        if (result === "成功") {
           alert(`✅ 已記錄：${className} ${name} 借用 ${item}`);
           loadRecords();
         } else {
-          alert(`❌ 送出失敗：${json.message || "未知錯誤"}`);
+          alert(`❌ 送出失敗：${result || "未知錯誤，請稍後重試"}`);
         }
       } catch (err) {
         alert(`❌ 送出失敗：${err.message}。請檢查網路或確認 Google Apps Script URL 正確。`);
@@ -502,7 +379,7 @@
       const tbody = document.getElementById("recordTable");
       tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">🔄 讀取中...</td></tr>`;
       try {
-        const res = await fetch(sheetUrl);
+        const res = await fetch(CONFIG.RECORD_SHEET_URL);
         if (!res.ok) {
           throw new Error(`無法載入 CSV：${res.status} ${res.statusText}`);
         }
@@ -520,16 +397,14 @@
               tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
               return;
             }
+            let invalidRows = 0;
             for (const row of rows.slice(0, 10)) {
-              if (row.length < 5) {
+              if (row.length < 5 || !row[1] || !row[2] || !row[3] || !row[4]) {
+                invalidRows++;
                 console.warn("無效行數據：", row);
                 continue;
               }
               const [cardId, className, name, item, time] = row;
-              if (!time || !className || !name || !item) {
-                console.warn("缺少必要欄位：", row);
-                continue;
-              }
               const parsedDate = parseChineseDateTime(time);
               const displayTime = parsedDate ? parsedDate.toLocaleString("zh-TW") : "無效時間";
               console.log("原始時間：", time, "解析後：", displayTime);
@@ -544,6 +419,9 @@
             }
             if (tbody.innerHTML === "") {
               tbody.innerHTML = `<tr><td colspan="4" class="text-center py-2">目前無借用紀錄</td></tr>`;
+            }
+            if (invalidRows > 0) {
+              alert(`⚠️ 忽略了 ${invalidRows} 筆無效紀錄，請檢查試算表數據格式`);
             }
           },
           error: (err) => {
